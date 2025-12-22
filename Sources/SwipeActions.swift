@@ -346,6 +346,7 @@ public struct SwipeView<Label, LeadingActions, TrailingActions>: View where Labe
 
     /// Read the `swipeViewGroupSelection` from the parent `SwipeViewGroup` (if it exists).
     @Environment(\.swipeViewGroupSelection) var swipeViewGroupSelection
+    @Environment(\.layoutDirection) private var layoutDirection // Access layout direction
 
     // MARK: - Internal state
 
@@ -856,7 +857,8 @@ extension SwipeView {
         /// Set the current side.
         if currentSide == nil {
             let dx = value.location.x - value.startLocation.x
-            if dx > 0 {
+            // Adjust side for RTL: flip the direction if layout is RTL.
+            if (layoutDirection == .leftToRight && dx > 0) || (layoutDirection == .rightToLeft && dx < 0) {
                 currentSide = .leading
             } else {
                 currentSide = .trailing
@@ -872,31 +874,33 @@ extension SwipeView {
     }
 
     func change(value: DragGesture.Value) {
-        /// The total offset of the swipe view.
-        let totalOffset = savedOffset + value.translation.width
-
-        /// Get the disallowed side if it exists.
+        // Get adjusted direction for RTL layouts
+        let adjustedTranslation = layoutDirection == .rightToLeft ? -value.translation.width : value.translation.width
+        let totalOffset = savedOffset + adjustedTranslation
+        
+        // Get the disallowed side if it exists (assuming `getDisallowedSide` is a custom method)
         let disallowedSide = getDisallowedSide(totalOffset: totalOffset)
-
-        /// Apply rubber banding if an empty side is reached, or if a side is disallowed.
+        
         if numberOfLeadingActions == 0 || disallowedSide == .leading, totalOffset > 0 {
+            // Rubber-banding effect for leading edge in RTL if no actions available
             let constrainedExceededOffset = pow(totalOffset, options.stretchRubberBandingPower)
             currentOffset = constrainedExceededOffset - savedOffset
             leadingState = nil
             trailingState = nil
         } else if numberOfTrailingActions == 0 || disallowedSide == .trailing, totalOffset < 0 {
+            // Rubber-banding effect for trailing edge in RTL if no actions available
             let constrainedExceededOffset = -pow(-totalOffset, options.stretchRubberBandingPower)
             currentOffset = constrainedExceededOffset - savedOffset
             leadingState = nil
             trailingState = nil
-        } else { /// Otherwise, attempt to trigger the swipe actions.
-            /// Flag to keep track of whether `currentOffset` was set or not — if `false`, then set to the default of `value.translation.width`.
+        } else {
+            // Handle swipe actions and triggering logic
             var setCurrentOffset = false
 
             if totalOffset > leadingReadyToTriggerOffset {
                 setCurrentOffset = true
                 if swipeToTriggerLeadingEdge {
-                    currentOffset = value.translation.width
+                    currentOffset = adjustedTranslation
                     leadingState = .triggering
                     trailingState = nil
                 } else {
@@ -912,7 +916,7 @@ extension SwipeView {
             if totalOffset < trailingReadyToTriggerOffset {
                 setCurrentOffset = true
                 if swipeToTriggerTrailingEdge {
-                    currentOffset = value.translation.width
+                    currentOffset = adjustedTranslation
                     trailingState = .triggering
                     leadingState = nil
                 } else {
@@ -924,10 +928,10 @@ extension SwipeView {
                     trailingState = nil
                 }
             }
-
-            /// If the offset wasn't modified already (due to rubber banding), use `value.translation.width` as the default.
+            
+            // If no other offset was set, default to translation width
             if !setCurrentOffset {
-                currentOffset = value.translation.width
+                currentOffset = adjustedTranslation
                 leadingState = nil
                 trailingState = nil
             }
@@ -936,15 +940,21 @@ extension SwipeView {
 
     func onEnded(value: DragGesture.Value) {
         latestDragGestureValueBackup = nil
-        let velocity = velocity.dx / currentOffset
-        end(value: value, velocity: velocity)
+        
+        // Adjust velocity for RTL
+        let adjustedVelocity = layoutDirection == .rightToLeft ? -velocity.dx / currentOffset : velocity.dx / currentOffset
+        end(value: value, velocity: adjustedVelocity)
     }
 
-    /// Represents the end of a gesture.
+        /// Represents the end of a gesture.
     func end(value: DragGesture.Value, velocity: CGFloat) {
-        let totalOffset = savedOffset + value.translation.width
-        let totalPredictedOffset = (savedOffset + value.predictedEndTranslation.width) * 0.5
-
+        // Adjust totalOffset and totalPredictedOffset for RTL
+        let adjustedTranslation = layoutDirection == .rightToLeft ? -value.translation.width : value.translation.width
+        let adjustedPredictedEndTranslation = layoutDirection == .rightToLeft ? -value.predictedEndTranslation.width : value.predictedEndTranslation.width
+        
+        let totalOffset = savedOffset + adjustedTranslation
+        let totalPredictedOffset = (savedOffset + adjustedPredictedEndTranslation) * 0.5
+        
         if getDisallowedSide(totalOffset: totalPredictedOffset) != nil {
             currentSide = nil
             leadingState = .closed
@@ -952,7 +962,8 @@ extension SwipeView {
             close(velocity: velocity)
             return
         }
-
+        
+        // Trigger actions based on leading or trailing states in RTL
         if trailingState == .triggering {
             trailingState = .triggered
             trigger(side: .trailing, velocity: velocity)
@@ -971,8 +982,9 @@ extension SwipeView {
                 leadingState = .closed
                 trailingState = .closed
                 let draggedPastTrailingSide = totalOffset > 0
-                if draggedPastTrailingSide { /// if the finger is on the right of the view, make the velocity negative to return to closed quicker.
-                    close(velocity: velocity * -0.1)
+                // Adjust velocity sign for RTL
+                if draggedPastTrailingSide {
+                    close(velocity: velocity * (layoutDirection == .rightToLeft ? 0.1 : -0.1))
                 } else {
                     close(velocity: velocity)
                 }
