@@ -1126,6 +1126,18 @@ public extension SwipeAction {
 }
 
 public extension SwipeView {
+    /// Reset to unswiped state
+    func resetSwipe(_ reset: Bool) -> SwipeView {
+        guard reset else {
+            return self
+        }
+        
+        var view = self
+        view.savedOffset = 0
+        view.leadingState = .closed
+        view.trailingState = .closed
+        return view
+    }
     /// If swiping is currently enabled.
     func swipeEnabled(_ value: Bool) -> SwipeView {
         var view = self
